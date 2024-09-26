@@ -101,12 +101,13 @@ void interrupt_handler(struct trapframe *tf) {
         case IRQ_U_TIMER:
             cprintf("User software interrupt\n");
             break;
-        // "All bits besides SSIP and USIP in the sip register are
+        case IRQ_S_TIMER:
+            // "All bits besides SSIP and USIP in the sip register are
             // read-only." -- privileged spec1.9.1, 4.1.4, p59
             // In fact, Call sbi_set_timer will clear STIP, or you can clear it
             // directly.
             // cprintf("Supervisor timer interrupt\n");
-             /* LAB1 EXERCISE2   2213219 张高:  */
+             /* LAB1 EXERCISE2   2213219 张高 :  */
             clock_set_next_event();
             if(++ticks%TICK_NUM == 0){
             	print_ticks();
