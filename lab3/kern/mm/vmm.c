@@ -8,6 +8,7 @@
 #include <riscv.h>
 #include <swap.h>
 
+extern bool swap_lru_vaild;
 /* 
   vmm design include two parts: mm_struct (mm) & vma_struct (vma)
   mm is the memory manager for the set of continuous virtual memory  
@@ -329,6 +330,59 @@ volatile unsigned int pgfault_num=0;
  */
 int
 do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
+    // 检查是否需要进行LRU（最近最少使用）页面交换操作
+    if (swap_lru_vaild) {
+        // 定义一个临时指针，表示某个页面的页表项
+        pte_t* temp = NULL;
+        // 获取页表项，地址是`addr`，标志位为0
+        temp = get_pte(mm->pgdir, addr, 0);
+        // 如果页表项有效且该页表项包含有效位（PTE_V）和可读位（PTE_R），表示该页是有效且可访问的
+        if (temp != NULL && (*temp & (PTE_V | PTE_R))) {
+            // 输出调试信息，表示发生了LRU页面缺页
+            cprintf("lru page fault at 0x%x\n", addr);
+            // 如果初始化的交换机制已经启动
+            if (swap_init_ok) {
+                // 获取LRU链表的头部，即`sm_priv`字段
+                list_entry_t *head = (list_entry_t*) mm->sm_priv, *le = head;
+                // 遍历LRU链表
+                while ((le = list_prev(le)) != head) {
+                    // 获取当前页面对象
+                    struct Page* page = le2page(le, pra_page_link);
+                    // 获取该页面的页表项
+                    pte_t* ptep = get_pte(mm->pgdir, page->pra_vaddr, 0);
+                    // 如果页表项有效，将其可读位（PTE_R）清除
+                    *ptep &= ~PTE_R;
+                }
+            }
+            // 获取当前请求页的页表项
+            pte_t* ptep = NULL;
+            ptep = get_pte(mm->pgdir, addr, 0);
+            // 设置该页面的可读位（PTE_R），表示当前页面已被访问
+            *ptep |= PTE_R;
+            // 如果交换机制没有初始化好，直接返回0
+            if (!swap_init_ok) 
+                return 0;
+            // 将页表项转换为页面对象
+            struct Page* page = pte2page(*ptep);
+            // 获取LRU链表的头部
+            list_entry_t *head = (list_entry_t*) mm->sm_priv, *le = head;
+            // 遍历LRU链表
+            while ((le = list_prev(le)) != head) {
+                // 获取当前页面对象
+                struct Page* currPage = le2page(le, pra_page_link);
+                // 如果当前页面就是目标页面，进行链表操作
+                if (page == currPage) {
+                    // 从链表中删除该页面
+                    list_del(le);
+                    // 将该页面重新添加到链表头部
+                    list_add(head, le);
+                    break;
+                }
+            }
+            return 0;
+        }
+    }
+
     int ret = -E_INVAL;
     //try to find a vma which include addr
     struct vma_struct *vma = find_vma(mm, addr);
@@ -383,7 +437,7 @@ do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
             goto failed;
         }
     } else {
-        /*LAB3 EXERCISE 3: YOUR CODE
+        /*LAB3 EXERCISE 3: 2210873 黄贝杰
         * 请你根据以下信息提示，补充函数
         * 现在我们认为pte是一个交换条目，那我们应该从磁盘加载数据并放到带有phy addr的页面，
         * 并将phy addr与逻辑addr映射，触发交换管理器记录该页面的访问情况
@@ -401,11 +455,15 @@ do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
             //(1）According to the mm AND addr, try
             //to load the content of right disk page
             //into the memory which page managed.
+            swap_in(mm, addr,&page);
             //(2) According to the mm,
             //addr AND page, setup the
             //map of phy addr <--->
             //logical addr
+            page_insert(mm->pgdir, page, addr,perm);
             //(3) make the page swappable.
+            swap_map_swappable(mm,addr, page, 1);
+            
             page->pra_vaddr = addr;
         } else {
             cprintf("no swap_init_ok but ptep is %x, failed\n", *ptep);

@@ -2,6 +2,7 @@
 #include <swapfs.h>
 #include <swap_fifo.h>
 #include <swap_clock.h>
+#include <swap_LRU.h>
 #include <stdio.h>
 #include <string.h>
 #include <memlayout.h>
@@ -22,6 +23,8 @@ size_t max_swap_offset;
 
 volatile int swap_init_ok = 0;
 
+bool swap_lru_vaild = false;
+
 unsigned int swap_page[CHECK_VALID_VIR_PAGE_NUM];
 
 unsigned int swap_in_seq_no[MAX_SEQ_NO],swap_out_seq_no[MAX_SEQ_NO];
@@ -39,7 +42,13 @@ swap_init(void)
         panic("bad max_swap_offset %08x.\n", max_swap_offset);
      }
 
-     sm = &swap_manager_clock;//use first in first out Page Replacement Algorithm
+     //sm = &swap_manager_fifo;
+
+     sm = &swap_manager_clock;
+
+     // swap_lru_vaild = true;
+     // sm = &swap_manager_LRU;
+     
      int r = sm->init();
      
      if (r == 0)
