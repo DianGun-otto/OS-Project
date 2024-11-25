@@ -330,7 +330,7 @@ volatile unsigned int pgfault_num=0;
  */
 int
 do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
-    // 检查是否需要进行LRU（最近最少使用）页面交换操作
+    // 检查是否需要进行LRU页面交换操作
     if (swap_lru_vaild) {
         // 定义一个临时指针，表示某个页面的页表项
         pte_t* temp = NULL;
@@ -455,14 +455,14 @@ do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
             //(1）According to the mm AND addr, try
             //to load the content of right disk page
             //into the memory which page managed.
-            swap_in(mm, addr,&page);
+            swap_in(mm, addr, &page);
             //(2) According to the mm,
             //addr AND page, setup the
             //map of phy addr <--->
             //logical addr
-            page_insert(mm->pgdir, page, addr,perm);
+            page_insert(mm->pgdir, page, addr, perm);
             //(3) make the page swappable.
-            swap_map_swappable(mm,addr, page, 1);
+            swap_map_swappable(mm, addr, page, 1);
             
             page->pra_vaddr = addr;
         } else {

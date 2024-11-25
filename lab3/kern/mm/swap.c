@@ -44,10 +44,10 @@ swap_init(void)
 
      //sm = &swap_manager_fifo;
 
-     sm = &swap_manager_clock;
+     sm = &swap_manager_clock; //make grade
 
-     // swap_lru_vaild = true;
-     // sm = &swap_manager_LRU;
+     //swap_lru_vaild = true;
+     //sm = &swap_manager_LRU;
      
      int r = sm->init();
      

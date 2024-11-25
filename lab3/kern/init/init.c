@@ -28,14 +28,23 @@ kern_init(void) {
 
     // grade_backtrace();
 
-    pmm_init();                 // init physical memory management
+    pmm_init();                 // init physical memory management 物理内存管理初始化
+                                // 加入了多级页表的接口和测试
+                                
+    idt_init();                 // init interrupt descriptor table 中断描述符表初始化
 
-    idt_init();                 // init interrupt descriptor table
+    vmm_init();                 // init virtual memory management 
+                                // 虚拟内存管理机制初始化，在此阶段，主要是建立虚拟地址
+                                // 到物理地址的映射关系，为虚拟内存提供管理支持。
 
-    vmm_init();                 // init virtual memory management
+    ide_init();                 // init ide devices 
+                                // 完成对用于页面换入和换出的硬盘（通常称为swap硬盘）的初始化
+                                // 在这个阶段，ucore准备好了对硬盘数据块的读写操作，以便后续页面置换算法的实现。
+                                // 模拟硬盘的措施：从内核的静态存储区里面分出一块内存， 声称这块存储区域是硬盘，
+                                // 然后包裹一下给出硬盘IO的接口。 
 
-    ide_init();                 // init ide devices
-    swap_init();                // init swap
+    swap_init();                // init swap 页面置换算法初始化
+                                //其中包括Clock页替换算法的相关数据结构和初始化步骤
 
     clock_init();               // init clock interrupt
     // intr_enable();              // enable irq interrupt
