@@ -173,7 +173,7 @@ get_pid(void) {
 void
 proc_run(struct proc_struct *proc) {
     if (proc != current) {
-        // LAB4:EXERCISE3 YOUR CODE
+        // LAB4:EXERCISE3：2213219 张高
         /*
         * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
         * MACROs or Functions:
@@ -183,15 +183,25 @@ proc_run(struct proc_struct *proc) {
         *   switch_to():              Context switching between two processes
         */
        
+        // 禁用中断，保存中断状态
         bool intr_flag;
-        struct proc_struct *prev = current, *next = proc;
         local_intr_save(intr_flag);
-        {
-            current = proc;
-            load_esp0(next->kstack + KSTACKSIZE);
-            lcr3(next->cr3);
-            switch_to(&(prev->context), &(next->context));
-        }
+        // 保存当前进程的上下文，并切换到新进程
+        struct proc_struct * temp = current; // 将当前进程保存到临时变量 temp，以便之后恢复其上下文
+        current = proc; // 切换到新进程
+        // 切换页表，以便使用新进程的地址空间
+        // cause: 
+        // 为了确保进程 A 不会访问到进程 B 的地址空间
+        // 页目录表包含了虚拟地址到物理地址的映射关系,将当前进程的虚拟地址空间映射关系切换为新进程的映射关系.
+        // 确保指令和数据的地址转换是基于新进程的页目录表进行的
+        lcr3(current->cr3); // CR3 寄存器存储当前使用的页目录表（Page Directory Table, PDT）的物理地址
+        // 上下文切换
+        // cause:
+        // 保存当前进程的信息,以便之后能够正确地恢复到当前进程
+        // 将新进程的上下文信息加载到相应的寄存器和寄存器状态寄存器中，确保 CPU 开始执行新进程的代码
+        // 禁用中断确保在切换期间不会被中断打断
+        switch_to(&(temp->context),&(proc->context));
+        // 恢复中断状态
         local_intr_restore(intr_flag);
     }
 }
