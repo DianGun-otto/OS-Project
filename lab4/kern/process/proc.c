@@ -86,7 +86,7 @@ static struct proc_struct *
 alloc_proc(void) {
     struct proc_struct *proc = kmalloc(sizeof(struct proc_struct));
     if (proc != NULL) {
-    //LAB4:EXERCISE1 YOUR CODE
+    //LAB4:EXERCISE1:2210873 黄贝杰
     /*
      * below fields in proc_struct need to be initialized
      *       enum proc_state state;                      // Process state
@@ -102,18 +102,29 @@ alloc_proc(void) {
      *       uint32_t flags;                             // Process flag
      *       char name[PROC_NAME_LEN + 1];               // Process name
      */
-        proc->state =  (enum proc_state)PROC_UNINIT;  // process starts in unused state
-        proc->pid = -1;      // unique PID
-        proc->runs = 0;             // process hasn't run yet
-        proc->kstack = 0;           // will be set later by setup_kstack
-        proc->need_resched = 0; // doesn't need rescheduling initially
-        proc->parent = NULL;        // no parent at creation
-        proc->mm = NULL;            // no memory management
-        memset(&proc->context, 0, sizeof(proc->context)); // zero out context
-        proc->tf = NULL;            // will be set later in do_fork or kernel_thread
-        proc->cr3 = boot_cr3;              // CR3 is not set initially (no paging yet)
-        proc->flags = 0;            // no flags set initially
-        memset(proc->name, 0, PROC_NAME_LEN); // empty name initially
+        proc->state = PROC_UNINIT; // 此时未分配该PCB对应的资源，故状态为初始态
+
+        proc->pid = -1; // 与state对应，表示无法运行
+
+        proc->runs = 0; // 分配阶段故运行次数为0
+
+        proc->kstack = 0; // 内核栈暂未分配
+
+        proc->need_resched = 0; // 不调度其他进程、即CPU资源不分配
+
+        proc->parent = NULL; // 当前无父进程
+
+        proc->mm = NULL; // 当前未分配内存
+
+        memset(&(proc->context), 0, sizeof(struct context)); // 上下文置零
+
+        proc->tf = NULL; // 当前无中断帧
+
+        proc->cr3 = boot_cr3; // 内核线程同属于一个内核大进程，共享内核空间，故页表相同
+
+        proc->flags = 0; // 当前暂无
+
+        memset(&(proc->name), 0, PROC_NAME_LEN); // 当前暂无
     }
     return proc;
 }
@@ -173,7 +184,7 @@ get_pid(void) {
 void
 proc_run(struct proc_struct *proc) {
     if (proc != current) {
-        // LAB4:EXERCISE3：2213219 张高
+        // LAB4:EXERCISE3:2213219 张高
         /*
         * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
         * MACROs or Functions:
