@@ -87,7 +87,7 @@ static struct proc_struct *
 alloc_proc(void) {
     struct proc_struct *proc = kmalloc(sizeof(struct proc_struct));
     if (proc != NULL) {
-    //LAB4:EXERCISE1 YOUR CODE
+    //LAB4:EXERCISE1:2210873 黄贝杰
     /*
      * below fields in proc_struct need to be initialized
      *       enum proc_state state;                      // Process state
@@ -103,13 +103,24 @@ alloc_proc(void) {
      *       uint32_t flags;                             // Process flag
      *       char name[PROC_NAME_LEN + 1];               // Process name
      */
+        proc->state = PROC_UNINIT; // 此时未分配该PCB对应的资源，故状态为初始态
+        proc->pid = -1; // 与state对应，表示无法运行
+        proc->runs = 0; // 分配阶段故运行次数为0
+        proc->kstack = 0; // 内核栈暂未分配
+        proc->need_resched = 0; // 不调度其他进程、即CPU资源不分配
+        proc->parent = NULL; // 当前无父进程
+        proc->mm = NULL; // 当前未分配内存
+        memset(&(proc->context), 0, sizeof(struct context)); // 上下文置零
+        proc->tf = NULL; // 当前无中断帧
+        proc->cr3 = boot_cr3; // 内核线程同属于一个内核大进程，共享内核空间，故页表相同
+        proc->flags = 0; // 当前暂无
+        memset(&(proc->name), 0, PROC_NAME_LEN); // 当前暂无
 
-     //LAB5 YOUR CODE : (update LAB4 steps)
-     /*
-     * below fields(add in LAB5) in proc_struct need to be initialized  
-     *       uint32_t wait_state;                        // waiting state
-     *       struct proc_struct *cptr, *yptr, *optr;     // relations between processes
-     */
+        // LAB5新增
+        // 初始化进程等待状态、和进程的相关指针，例如父进程、子进程、同胞等等。
+        // 其中的wait_state是进程控制块中新增的条目。避免之后由于未定义或未初始化导致管理用户进程时出现错误。
+        proc->wait_state = 0; // PCB新增的条目，初始化进程等待状态
+        proc->cptr = proc->optr = proc->yptr = NULL; // 新proc相关的proc
     }
     return proc;
 }
@@ -132,29 +143,42 @@ get_proc_name(struct proc_struct *proc) {
 // set_links - set the relation links of process
 static void
 set_links(struct proc_struct *proc) {
+    // 将新进程 (proc) 插入到进程链表 (proc_list) 的末尾
     list_add(&proc_list, &(proc->list_link));
+
+    // 初始化新进程的 yp 指针为 NULL
     proc->yptr = NULL;
+
+    // 如果新进程的父进程的 cptr 指针不为空 (表示父进程已经有子进程)，
+    // 将新进程设置为父进程 cptr 所指向的进程的 yp 指针，形成父子关系
     if ((proc->optr = proc->parent->cptr) != NULL) {
+        // 将父进程的 cptr 指向的进程的 yp 指针指向当前进程 (proc)
         proc->optr->yptr = proc;
     }
+    
+    // 设置父进程的 cptr 指向新进程，表示新进程是父进程的唯一子进程
     proc->parent->cptr = proc;
-    nr_process ++;
+
+    // 增加系统中进程的数量
+    nr_process++;
 }
 
 // remove_links - clean the relation links of process
 static void
 remove_links(struct proc_struct *proc) {
     list_del(&(proc->list_link));
-    if (proc->optr != NULL) {
-        proc->optr->yptr = proc->yptr;
+    if (proc->optr != NULL) { // 检查 proc 是否有父进程
+        proc->optr->yptr = proc->yptr; // 它的父进程的 yptr（兄弟指针）需要指向 proc 的兄弟进程 yptr
     }
-    if (proc->yptr != NULL) {
-        proc->yptr->optr = proc->optr;
+    if (proc->yptr != NULL) { // 检查 proc 是否有下一个兄弟进程
+        proc->yptr->optr = proc->optr; // 它的下一个兄弟的父进程指针 optr 应该指向当前进程的父进程 optr
     }
-    else {
-       proc->parent->cptr = proc->optr;
-    }
-    nr_process --;
+    else { //如果 proc 没有下一个兄弟进程（即 yptr == NULL），则说明当前进程是父进程的最后一个子进程
+       proc->parent->cptr = proc->optr; // 父进程的 cptr（子进程指针）应该指向当前进程的父进程指针 optr，
+                                        // 即将父进程的 cptr 更新为当前进程的父进程 optr
+    }                                   // 这样做的目的是移除当前进程作为父进程的最后一个子进程。
+    
+    nr_process --; // 减少了进程总数 nr_process，表明当前进程已经被移除，不再是系统中的活动进程。
 }
 
 // get_pid - alloc a unique pid for process
@@ -197,7 +221,7 @@ get_pid(void) {
 void
 proc_run(struct proc_struct *proc) {
     if (proc != current) {
-        // LAB4:EXERCISE3 YOUR CODE
+        // LAB4:EXERCISE3:2213219 张高
         /*
         * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
         * MACROs or Functions:
@@ -206,9 +230,30 @@ proc_run(struct proc_struct *proc) {
         *   lcr3():                   Modify the value of CR3 register
         *   switch_to():              Context switching between two processes
         */
-
+        
+        // 禁用中断，保存中断状态
+        bool intr_flag;
+        local_intr_save(intr_flag);
+        // 保存当前进程的上下文，并切换到新进程
+        struct proc_struct * temp = current; // 将当前进程保存到临时变量 temp，以便之后恢复其上下文
+        current = proc; // 切换到新进程
+        // 切换页表，以便使用新进程的地址空间
+        // cause: 
+        // 为了确保进程 A 不会访问到进程 B 的地址空间
+        // 页目录表包含了虚拟地址到物理地址的映射关系,将当前进程的虚拟地址空间映射关系切换为新进程的映射关系.
+        // 确保指令和数据的地址转换是基于新进程的页目录表进行的
+        lcr3(current->cr3); // CR3 寄存器存储当前使用的页目录表（Page Directory Table, PDT）的物理地址
+        // 上下文切换
+        // cause:
+        // 保存当前进程的信息,以便之后能够正确地恢复到当前进程
+        // 将新进程的上下文信息加载到相应的寄存器和寄存器状态寄存器中，确保 CPU 开始执行新进程的代码
+        // 禁用中断确保在切换期间不会被中断打断
+        switch_to(&(temp->context),&(proc->context));
+        // 恢复中断状态
+        local_intr_restore(intr_flag);
     }
 }
+
 
 // forkret -- the first kernel entry point of a new thread/process
 // NOTE: the addr of forkret is setted in copy_thread function
@@ -301,36 +346,33 @@ put_pgdir(struct mm_struct *mm) {
 static int
 copy_mm(uint32_t clone_flags, struct proc_struct *proc) {
     struct mm_struct *mm, *oldmm = current->mm;
-
     /* current is a kernel thread */
-    if (oldmm == NULL) {
+    if (oldmm == NULL) { //当前进程地址空间为NULL
         return 0;
     }
-    if (clone_flags & CLONE_VM) {
-        mm = oldmm;
+    if (clone_flags & CLONE_VM) { //可以共享地址空间
+        mm = oldmm;  //共享地址空间
         goto good_mm;
     }
-    int ret = -E_NO_MEM;
-    if ((mm = mm_create()) == NULL) {
+    int ret = -E_NO_MEM; 
+    if ((mm = mm_create()) == NULL) { //创建地址空间未成功
         goto bad_mm;
     }
-    if (setup_pgdir(mm) != 0) {
+    if (setup_pgdir(mm) != 0) { 
         goto bad_pgdir_cleanup_mm;
     }
-    lock_mm(oldmm);
+    lock_mm(oldmm); //打开互斥锁,避免多个进程同时访问内存
     {
-        ret = dup_mmap(mm, oldmm);
+        ret = dup_mmap(mm, oldmm); //调用dup_mmap函数
     }
-    unlock_mm(oldmm);
-
+    unlock_mm(oldmm); //释放互斥锁
     if (ret != 0) {
         goto bad_dup_cleanup_mmap;
     }
-
 good_mm:
-    mm_count_inc(mm);
-    proc->mm = mm;
-    proc->cr3 = PADDR(mm->pgdir);
+    mm_count_inc(mm);  //共享地址空间的进程数加一
+    proc->mm = mm;     //复制空间地址
+    proc->cr3 = PADDR(mm->pgdir); //复制页表地址
     return 0;
 bad_dup_cleanup_mmap:
     exit_mmap(mm);
@@ -338,8 +380,9 @@ bad_dup_cleanup_mmap:
 bad_pgdir_cleanup_mm:
     mm_destroy(mm);
 bad_mm:
-    return ret;
+    return ret; 
 }
+
 
 // copy_thread - setup the trapframe on the  process's kernel stack top and
 //             - setup the kernel entry point and stack of process
@@ -365,11 +408,13 @@ int
 do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
     int ret = -E_NO_FREE_PROC;
     struct proc_struct *proc;
+    
+    // 检查当前进程数量是否已达到最大值（MAX_PROCESS）。如果是，则返回错误-E_NO_FREE_PROC并跳转到fork_out。
     if (nr_process >= MAX_PROCESS) {
         goto fork_out;
     }
     ret = -E_NO_MEM;
-    //LAB4:EXERCISE2 YOUR CODE
+    //LAB4:EXERCISE2:2211289 张铭
     /*
      * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
      * MACROs or Functions:
@@ -387,23 +432,43 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
      *   nr_process:   the number of process set
      */
 
-    //    1. call alloc_proc to allocate a proc_struct
-    //    2. call setup_kstack to allocate a kernel stack for child process
-    //    3. call copy_mm to dup OR share mm according clone_flag
-    //    4. call copy_thread to setup tf & context in proc_struct
-    //    5. insert proc_struct into hash_list && proc_list
-    //    6. call wakeup_proc to make the new child process RUNNABLE
-    //    7. set ret vaule using child proc's pid
+    //    1. call alloc_proc to allocate a proc_struct 分配并初始化进程控制块（alloc_proc函数）
+    if ((proc = alloc_proc()) == NULL) {
+        goto fork_out;
+    }
+    proc->parent = current;
 
-    //LAB5 YOUR CODE : (update LAB4 steps)
-    //TIPS: you should modify your written code in lab4(step1 and step5), not add more code.
-   /* Some Functions
-    *    set_links:  set the relation links of process.  ALSO SEE: remove_links:  lean the relation links of process 
-    *    -------------------
-    *    update step 1: set child proc's parent to current process, make sure current process's wait_state is 0
-    *    update step 5: insert proc_struct into hash_list && proc_list, set the relation links of process
-    */
- 
+    // LAB5新增
+    assert(current->wait_state == 0); //确保进程在等待
+    //    2. call setup_kstack to allocate a kernel stack for child process 分配并初始化内核栈（setup_stack函数）
+    if (setup_kstack(proc) != 0) {
+        goto bad_fork_cleanup_kstack;
+    }
+    //    3. call copy_mm to dup OR share mm according clone_flag 根据clone_flags决定是复制还是共享内存管理系统（copy_mm函数）
+    if (copy_mm(clone_flags, proc) != 0) {
+        goto bad_fork_cleanup_proc;
+    }
+    //    4. call copy_thread to setup tf & context in proc_struct 设置进程的中断帧和上下文（copy_thread函数）
+    copy_thread(proc, stack, tf);
+    //    5. insert proc_struct into hash_list && proc_list 把设置好的进程加入链表
+    int intr_flag;
+    local_intr_save(intr_flag);
+    {
+        proc->pid = get_pid();
+        // list_add(&proc_list, &proc->list_link);
+        // nr_process++;
+
+        // LAB5新增
+        set_links(proc); // 设置进程链接
+        hash_proc(proc);
+        
+    }
+    local_intr_restore(intr_flag);
+    //    6. call wakeup_proc to make the new child process RUNNABLE 将新建的进程设为就绪态
+    wakeup_proc(proc);
+    //    7. set ret vaule using child proc's pid 将返回值设为线程id
+    ret = proc->pid;
+
 fork_out:
     return ret;
 
@@ -583,7 +648,7 @@ load_icode(unsigned char *binary, size_t size) {
     assert(pgdir_alloc_page(mm->pgdir, USTACKTOP-2*PGSIZE , PTE_USER) != NULL);
     assert(pgdir_alloc_page(mm->pgdir, USTACKTOP-3*PGSIZE , PTE_USER) != NULL);
     assert(pgdir_alloc_page(mm->pgdir, USTACKTOP-4*PGSIZE , PTE_USER) != NULL);
-    
+
     //(5) set current process's mm, sr3, and set CR3 reg = physical addr of Page Directory
     mm_count_inc(mm);
     current->mm = mm;
@@ -603,7 +668,9 @@ load_icode(unsigned char *binary, size_t size) {
      *          tf->status should be appropriate for user program (the value of sstatus)
      *          hint: check meaning of SPP, SPIE in SSTATUS, use them by SSTATUS_SPP, SSTATUS_SPIE(defined in risv.h)
      */
-
+    tf->gpr.sp = USTACKTOP; // 设置用户栈指针为用户栈的顶部
+    tf->epc = elf->e_entry; // 设置用户程序的入口地址
+    tf->status = (read_csr(sstatus) | SSTATUS_SPIE) & ~SSTATUS_SPP; // 设置状态寄存器，确保用户程序在用户态运行，并开启中断
 
     ret = 0;
 out:

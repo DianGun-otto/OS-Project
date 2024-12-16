@@ -370,7 +370,7 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
             assert(page != NULL);
             assert(npage != NULL);
             int ret = 0;
-            /* LAB5:EXERCISE2 YOUR CODE
+            /* LAB5:EXERCISE2：2211289 张铭
              * replicate content of page to npage, build the map of phy addr of
              * nage with the linear addr start
              *
@@ -388,7 +388,14 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
              * (3) memory copy from src_kvaddr to dst_kvaddr, size is PGSIZE
              * (4) build the map of phy addr of  nage with the linear addr start
              */
-
+            //(1)获取父进程的内存页对应的内核虚拟地址，page是父进程的内存页，page2kva函数将页结构转换为对应的内核虚拟地址
+            void * kva_src = page2kva(page);
+            //(2)获取子进程对应的内核虚拟页地址，npage是新分配给子进程的内存页
+            void * kva_dst = page2kva(npage);
+            //(3)将父进程的内存页内容复制到子进程的内存页 
+            memcpy(kva_dst, kva_src, PGSIZE);
+            //(4)将子进程的内存页插入到子进程的页表中。to是子进程的内存管理结构，npage是子进程的内存页，start是虚拟地址，perm是页的权限。
+            ret = page_insert(to, npage, start, perm);
 
             assert(ret == 0);
         }

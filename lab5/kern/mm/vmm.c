@@ -189,19 +189,19 @@ out:
 
 int
 dup_mmap(struct mm_struct *to, struct mm_struct *from) {
-    assert(to != NULL && from != NULL);
+    assert(to != NULL && from != NULL); //必须非空
+    //mmap_list为虚拟地址空间的首地址
     list_entry_t *list = &(from->mmap_list), *le = list;
-    while ((le = list_prev(le)) != list) {
-        struct vma_struct *vma, *nvma;
-        vma = le2vma(le, list_link);
+    while ((le = list_prev(le)) != list) { //遍历所有段
+        struct vma_struct *vma, *nvma; 
+        vma = le2vma(le, list_link); //获取某一段
         nvma = vma_create(vma->vm_start, vma->vm_end, vma->vm_flags);
         if (nvma == NULL) {
             return -E_NO_MEM;
         }
-
-        insert_vma_struct(to, nvma);
-
-        bool share = 0;
+        insert_vma_struct(to, nvma); //向新进程插入新创建的段
+        bool share = 0; 
+        //调用copy_range函数
         if (copy_range(to->pgdir, from->pgdir, vma->vm_start, vma->vm_end, share) != 0) {
             return -E_NO_MEM;
         }
@@ -453,11 +453,15 @@ do_pgfault(struct mm_struct *mm, uint_t error_code, uintptr_t addr) {
             //(1）According to the mm AND addr, try
             //to load the content of right disk page
             //into the memory which page managed.
+            swap_in(mm, addr, &page);
             //(2) According to the mm,
             //addr AND page, setup the
             //map of phy addr <--->
             //logical addr
+            page_insert(mm->pgdir, page, addr, perm);
             //(3) make the page swappable.
+            swap_map_swappable(mm, addr, page, 1);
+            
             page->pra_vaddr = addr;
         } else {
             cprintf("no swap_init_ok but ptep is %x, failed\n", *ptep);

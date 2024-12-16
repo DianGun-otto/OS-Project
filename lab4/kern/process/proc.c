@@ -193,7 +193,7 @@ proc_run(struct proc_struct *proc) {
         *   lcr3():                   Modify the value of CR3 register
         *   switch_to():              Context switching between two processes
         */
-       
+        
         // 禁用中断，保存中断状态
         bool intr_flag;
         local_intr_save(intr_flag);
@@ -251,12 +251,24 @@ find_proc(int pid) {
 //       proc->tf in do_fork-->copy_thread function
 int
 kernel_thread(int (*fn)(void *), void *arg, uint32_t clone_flags) {
+    // 对trameframe，也就是我们程序的一些上下文进行一些初始化
     struct trapframe tf;
     memset(&tf, 0, sizeof(struct trapframe));
-    tf.gpr.s0 = (uintptr_t)fn;
-    tf.gpr.s1 = (uintptr_t)arg;
+
+    // 设置内核线程的参数和函数指针
+    tf.gpr.s0 = (uintptr_t)fn; // s0 寄存器保存函数指针
+    tf.gpr.s1 = (uintptr_t)arg; // s1 寄存器保存函数参数
+
+    // 设置 trapframe 中的 status 寄存器（SSTATUS）
+    // SSTATUS_SPP：Supervisor Previous Privilege（设置为 supervisor 模式，因为这是一个内核线程）
+    // SSTATUS_SPIE：Supervisor Previous Interrupt Enable（设置为启用中断，因为这是一个内核线程）
+    // SSTATUS_SIE：Supervisor Interrupt Enable（设置为禁用中断，因为我们不希望该线程被中断）
     tf.status = (read_csr(sstatus) | SSTATUS_SPP | SSTATUS_SPIE) & ~SSTATUS_SIE;
+
+    // 将入口点（epc）设置为 kernel_thread_entry 函数，作用实际上是将pc指针指向它(*trapentry.S会用到)
     tf.epc = (uintptr_t)kernel_thread_entry;
+
+    // 使用 do_fork 创建一个新进程（内核线程），这样才真正用设置的tf创建新进程
     return do_fork(clone_flags | CLONE_VM, 0, &tf);
 }
 
@@ -332,22 +344,22 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
      *   nr_process:   the number of process set
      */
 
-    //    1. call alloc_proc to allocate a proc_struct
+    //    1. call alloc_proc to allocate a proc_struct 分配并初始化进程控制块（alloc_proc函数）
     if ((proc = alloc_proc()) == NULL) {
         goto fork_out;
     }
     proc->parent = current;
-    //    2. call setup_kstack to allocate a kernel stack for child process
+    //    2. call setup_kstack to allocate a kernel stack for child process 分配并初始化内核栈（setup_stack函数）
     if (setup_kstack(proc) != 0) {
         goto bad_fork_cleanup_kstack;
     }
-    //    3. call copy_mm to dup OR share mm according clone_flag
+    //    3. call copy_mm to dup OR share mm according clone_flag 根据clone_flags决定是复制还是共享内存管理系统（copy_mm函数）
     if (copy_mm(clone_flags, proc) != 0) {
         goto bad_fork_cleanup_proc;
     }
-    //    4. call copy_thread to setup tf & context in proc_struct
+    //    4. call copy_thread to setup tf & context in proc_struct 设置进程的中断帧和上下文（copy_thread函数）
     copy_thread(proc, stack, tf);
-    //    5. insert proc_struct into hash_list && proc_list
+    //    5. insert proc_struct into hash_list && proc_list 把设置好的进程加入链表
     int intr_flag;
     local_intr_save(intr_flag);
     {
@@ -357,9 +369,9 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
         nr_process++;
     }
     local_intr_restore(intr_flag);
-    //    6. call wakeup_proc to make the new child process RUNNABLE
+    //    6. call wakeup_proc to make the new child process RUNNABLE 将新建的进程设为就绪态
     wakeup_proc(proc);
-    //    7. set ret vaule using child proc's pid
+    //    7. set ret vaule using child proc's pid 将返回值设为线程id
     ret = proc->pid;
 
 fork_out:
