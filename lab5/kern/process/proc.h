@@ -57,8 +57,8 @@ struct proc_struct {
     uint32_t wait_state;                        // waiting state(为0时表示该进程处于等待状态)
     struct proc_struct *cptr, *yptr, *optr;     // relations between processes
                                                 // cptr:子进程（child process）
-                                                // yptr:兄弟进程（sibling process）
-                                                // optr:父进程（parent process）
+                                                // yptr:兄弟进程（younger sibling process）
+                                                // optr:兄弟进程（older sibling process）
 };
 
 #define PF_EXITING                  0x00000001      // getting shutdown

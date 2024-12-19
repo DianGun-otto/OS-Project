@@ -117,7 +117,7 @@ alloc_proc(void) {
         memset(&(proc->name), 0, PROC_NAME_LEN); // 当前暂无
 
         // LAB5新增
-        // 初始化进程等待状态、和进程的相关指针，例如父进程、子进程、同胞等等。
+        // 初始化进程等待状态、和进程的相关指针，例如父进程、子进程、兄弟等等。
         // 其中的wait_state是进程控制块中新增的条目。避免之后由于未定义或未初始化导致管理用户进程时出现错误。
         proc->wait_state = 0; // PCB新增的条目，初始化进程等待状态
         proc->cptr = proc->optr = proc->yptr = NULL; // 新proc相关的proc
@@ -388,16 +388,32 @@ bad_mm:
 //             - setup the kernel entry point and stack of process
 static void
 copy_thread(struct proc_struct *proc, uintptr_t esp, struct trapframe *tf) {
+    // 将进程 proc 的 trapframe 设置为一个新的地址，这个地址在内核栈的顶部。
+    // 假设进程有一个内核栈，栈的大小为 KSTACKSIZE。
     proc->tf = (struct trapframe *)(proc->kstack + KSTACKSIZE) - 1;
+
+    // 将父进程的 trapframe 内容复制到新进程的 trapframe 中。
+    // 这里将父进程的寄存器状态 (tf) 复制到子进程的 trapframe 中。
     *(proc->tf) = *tf;
 
-    // Set a0 to 0 so a child process knows it's just forked
+    // 设置 a0 寄存器为 0，表示子进程刚刚被 fork，子进程会返回 0。
+    // 这个值会传递给子进程的用户空间，使其知道它是通过 fork 被创建的。
     proc->tf->gpr.a0 = 0;
+
+    // 设置子进程的栈指针 (sp)。
+    // 如果参数 esp 是 0，意味着我们将使用默认的栈指针（即指向 trapframe 的指针）。
+    // 否则，将使用传入的 esp 来设置栈指针，通常这由父进程传入。
     proc->tf->gpr.sp = (esp == 0) ? (uintptr_t)proc->tf : esp;
 
+    // 设置子进程的上下文返回地址 (ra)，该地址是 forkret 函数的入口地址。
+    // 这个地址是子进程的执行起点，forkret 用于从内核态返回到用户态。
     proc->context.ra = (uintptr_t)forkret;
+
+    // 设置子进程的上下文栈指针 (sp)，该栈指针指向子进程的 trapframe。
+    // forkret 会根据这个栈指针进行恢复，进入用户程序的执行。
     proc->context.sp = (uintptr_t)(proc->tf);
 }
+
 
 /* do_fork -     parent process for a new child process
  * @clone_flags: used to guide how to clone the child process
@@ -452,7 +468,7 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
     copy_thread(proc, stack, tf);
     //    5. insert proc_struct into hash_list && proc_list 把设置好的进程加入链表
     int intr_flag;
-    local_intr_save(intr_flag);
+    local_intr_save(intr_flag);// 关闭中断
     {
         proc->pid = get_pid();
         // list_add(&proc_list, &proc->list_link);
@@ -463,7 +479,7 @@ do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf) {
         hash_proc(proc);
         
     }
-    local_intr_restore(intr_flag);
+    local_intr_restore(intr_flag);// 恢复中断
     //    6. call wakeup_proc to make the new child process RUNNABLE 将新建的进程设为就绪态
     wakeup_proc(proc);
     //    7. set ret vaule using child proc's pid 将返回值设为线程id
@@ -514,7 +530,7 @@ do_exit(int error_code) {
         while (current->cptr != NULL) {
             proc = current->cptr;
             current->cptr = proc->optr;
-    
+
             proc->yptr = NULL;
             if ((proc->optr = initproc->cptr) != NULL) {
                 initproc->cptr->yptr = proc;
@@ -660,7 +676,7 @@ load_icode(unsigned char *binary, size_t size) {
     // Keep sstatus
     uintptr_t sstatus = tf->status;
     memset(tf, 0, sizeof(struct trapframe));
-    /* LAB5:EXERCISE1 YOUR CODE
+    /* LAB5:EXERCISE1 2210873 黄贝杰
      * should set tf->gpr.sp, tf->epc, tf->status
      * NOTICE: If we set trapframe correctly, then the user level process can return to USER MODE from kernel. So
      *          tf->gpr.sp should be user stack top (the value of sp)
@@ -668,9 +684,9 @@ load_icode(unsigned char *binary, size_t size) {
      *          tf->status should be appropriate for user program (the value of sstatus)
      *          hint: check meaning of SPP, SPIE in SSTATUS, use them by SSTATUS_SPP, SSTATUS_SPIE(defined in risv.h)
      */
-    tf->gpr.sp = USTACKTOP; // 设置用户栈指针为用户栈的顶部
+    tf->gpr.sp = USTACKTOP; // 用户栈的顶部赋值给用户进程的栈指针
     tf->epc = elf->e_entry; // 设置用户程序的入口地址
-    tf->status = (read_csr(sstatus) | SSTATUS_SPIE) & ~SSTATUS_SPP; // 设置状态寄存器，确保用户程序在用户态运行，并开启中断
+    tf->status=sstatus&(~(SSTATUS_SPP|SSTATUS_SPIE)); // 设置状态寄存器，确保用户程序在用户态运行，并开启中断
 
     ret = 0;
 out:

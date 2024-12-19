@@ -212,11 +212,11 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
              * (4) build the map of phy addr of  nage with the linear addr start
              */
             //(1)获取父进程的内存页对应的内核虚拟地址，page是父进程的内存页，page2kva函数将页结构转换为对应的内核虚拟地址
-            void * kva_src = page2kva(page);
+            void * src_kvaddr = page2kva(page);
             //(2)获取子进程对应的内核虚拟页地址，npage是新分配给子进程的内存页
-            void * kva_dst = page2kva(npage);
+            void * dst_kvaddr = page2kva(npage);
             //(3)将父进程的内存页内容复制到子进程的内存页 
-            memcpy(kva_dst, kva_src, PGSIZE);
+            memcpy(dst_kvaddr, src_kvaddr, PGSIZE);
             //(4)将子进程的内存页插入到子进程的页表中。to是子进程的内存管理结构，npage是子进程的内存页，start是虚拟地址，perm是页的权限。
             ret = page_insert(to, npage, start, perm);
 

@@ -351,21 +351,27 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
     // copy content by page unit.
     do {
         // call get_pte to find process A's pte according to the addr start
+        // 获取源进程（from）在虚拟地址start处的页表项（pte_t），ptep是指向该页表项的指针
         pte_t *ptep = get_pte(from, start, 0), *nptep;
+        // 如果源页表项为空（即该页没有映射），则跳到下一个页面
         if (ptep == NULL) {
+            // 将start向上对齐到下一页的起始地址
             start = ROUNDDOWN(start + PTSIZE, PTSIZE);
             continue;
         }
         // call get_pte to find process B's pte according to the addr start. If
         // pte is NULL, just alloc a PT
+        // 获取目标进程（to）在虚拟地址start处的页表项，如果目标页表项为空，则需要为目标进程分配页表
         if (*ptep & PTE_V) {
             if ((nptep = get_pte(to, start, 1)) == NULL) {
-                return -E_NO_MEM;
+                return -E_NO_MEM; // 如果无法为目标进程分配页表，返回内存不足错误
             }
-            uint32_t perm = (*ptep & PTE_USER);
+            uint32_t perm = (*ptep & PTE_USER); // 获取源页的权限标志（如用户权限）
             // get page from ptep
+            // 根据页表项获取源进程的物理页面
             struct Page *page = pte2page(*ptep);
             // alloc a page for process B
+            // 为目标进程分配一个新的页面
             struct Page *npage = alloc_page();
             assert(page != NULL);
             assert(npage != NULL);
@@ -389,18 +395,19 @@ int copy_range(pde_t *to, pde_t *from, uintptr_t start, uintptr_t end,
              * (4) build the map of phy addr of  nage with the linear addr start
              */
             //(1)获取父进程的内存页对应的内核虚拟地址，page是父进程的内存页，page2kva函数将页结构转换为对应的内核虚拟地址
-            void * kva_src = page2kva(page);
+            void * src_kvaddr = page2kva(page);
             //(2)获取子进程对应的内核虚拟页地址，npage是新分配给子进程的内存页
-            void * kva_dst = page2kva(npage);
+            void * dst_kvaddr = page2kva(npage);
             //(3)将父进程的内存页内容复制到子进程的内存页 
-            memcpy(kva_dst, kva_src, PGSIZE);
+            memcpy(dst_kvaddr, src_kvaddr, PGSIZE);
             //(4)将子进程的内存页插入到子进程的页表中。to是子进程的内存管理结构，npage是子进程的内存页，start是虚拟地址，perm是页的权限。
             ret = page_insert(to, npage, start, perm);
 
             assert(ret == 0);
         }
+        // 移动到下一个页面的起始地址
         start += PGSIZE;
-    } while (start != 0 && start < end);
+    } while (start != 0 && start < end);  // 当地址还在有效范围内时继续循环
     return 0;
 }
 

@@ -23,7 +23,7 @@ PMP1: 0x0000000000000000-0xffffffffffffffff (A,R,W,X)
 
 Special kernel symbols:
   entry  0xc0200032 (virtual)
-  etext  0xc02065dc (virtual)
+  etext  0xc02065d8 (virtual)
   edata  0xc02a7470 (virtual)
   end    0xc02b29cc (virtual)
 Kernel executable memory footprint: 715KB
@@ -106,6 +106,6 @@ waitpid 3 ok.
 exit pass.
 all user-mode processes have quit.
 init check memory pass.
-kernel panic at kern/process/proc.c:492:
+kernel panic at kern/process/proc.c:508:
     initproc exit.
 
