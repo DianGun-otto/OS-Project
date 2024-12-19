@@ -538,7 +538,7 @@ bad_dup_cleanup_mmap:
     exit_mmap(mm);
     put_pgdir(mm);
 bad_pgdir_cleanup_mm:
-    mm_destroy(mm);
+    mm_destroy(mm);w
 bad_mm:
     return ret;
 }
